@@ -79,7 +79,7 @@ Variable med suffiks [variabel]_t*: 'laggede' værdier af [variabel].
 Da målet med modellen er at skønne **churn**, og fordi churn er en 0/1-variabel,
 modelleres problemstillingen som et 'binært klassifikationsproblem'.
 
-```{r}
+```{r, warnings = FALSE, message = FALSE}
 table(df$churn)
 ```
 
@@ -95,7 +95,7 @@ Flere af variablene kan på forhånd konstateres at være irrelevante for vores 
 * **extract_date**: alle data er indlæst på samme dato, ingen variation og dermed ingen brugbar information.
 * **seniority_months_t1/2**: indeholder ingen ny information i forhold til **seniority_months**.
 
-```{r}
+```{r, warnings = FALSE, message = FALSE}
 vars_irrelevant <- c("ph_num",
                      "extract_date",
                      "seniority_months_t1",
@@ -117,7 +117,7 @@ df$churn <- as.factor(df$churn)
 ### Data splitting
 Split data into training (80%) and testing (20%) partitions. Set seed to ensure reproduceability.
 
-```{r, echo = FALSE}
+```{r, warning = FALSE, message = FALSE}
 set.seed(123)
 splits <- initial_split(df, props = 0.8)
 ```
@@ -126,7 +126,7 @@ splits <- initial_split(df, props = 0.8)
 
 Outcome and predictor variables are declared, cathegorical variables are 'one-hot'-encoded (except 'zip', that is kept as a numeric). This process is defined as a `recipe`.
 
-```{r, warnings = FALSE, message = FALSE}
+```{r, warning = FALSE, message = FALSE}
 rec <- recipe(training(splits)) %>% 
   # remove irrelevant variables.
   step_rm(vars_irrelevant) %>%
@@ -144,7 +144,7 @@ rec <- recipe(training(splits)) %>%
 
 Typically the `xgboost` model is a good choice for this kind of problem. 
 
-```{r, warnings = FALSE, message = FALSE}
+```{r, warning = FALSE, message = FALSE}
 model <- boost_tree(mode = "classification", 
                     tree_depth = tune()) %>%
   set_engine("xgboost")
@@ -154,7 +154,7 @@ model <- boost_tree(mode = "classification",
 
 The data preprocessing and ML model is combined into one complete end-to-end model specification.
 
-```{r, warnings = FALSE, message = FALSE}
+```{r, warning = FALSE, message = FALSE}
 set.seed(123)
 model_e2e <- workflow() %>%
   add_recipe(rec) %>%
@@ -165,7 +165,7 @@ model_e2e <- workflow() %>%
 
 Model is tuned using grid search in combination with cross validation. 
 'ROC AUC' is chosen as performance metric.
-```{r, warnings = FALSE, message = FALSE}
+```{r, warning = FALSE, message = FALSE}
 set.seed(123)
 folds <- vfold_cv(training(splits), v = 3)
 tuning <- tune_grid(
@@ -181,7 +181,7 @@ show_best(tuning, metric = pm_metric)
 ### Fit final model
 
 The final model is fit using the best values of the hyperparameters on all of the training data.
-```{r, warnings = FALSE, message = FALSE}
+```{r, warning = FALSE, message = FALSE}
 best_params <- select_best(tuning, pm_metric)
 model_e2e <- 
   model_e2e %>%
@@ -193,7 +193,7 @@ model_e2e <-
 
 The performance of the final model is assesed on the test partition.
 
-```{r, warnings = FALSE, message = FALSE}
+```{r, warning = FALSE, message = FALSE}
 # predict observations in test data.
 preds <- predict(model_e2e, new_data = testing(splits), type = "prob")
 
@@ -214,7 +214,8 @@ Hvis man havde mere tid, kunne man overveje følgende.
 * Modeleksperimenter: feature engineering, andre algoritmer, tuning
 * Balancering af data?
 
-Måske er der basis for at lave yderligere modeller.
+Måske er der basis for at lave yderligere modeller såsom:
+
 * Sandsynlighed for at forhindre *churn* ved indgreb.
 * Sandsynlighed for at forhindre *churn* ved et givet indgreb (pris/andet produkt).
 

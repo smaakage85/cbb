@@ -1820,6 +1820,8 @@ df &lt;- get(&quot;cbb&quot;)</code></pre>
 <div id="data-splitting" class="section level3">
 <h3>Data splitting</h3>
 <p>Split data into training (80%) and testing (20%) partitions. Set seed to ensure reproduceability.</p>
+<pre class="r"><code>set.seed(123)
+splits &lt;- initial_split(df, props = 0.8)</code></pre>
 </div>
 <div id="define-data-preprocessing-and-feature-engineering" class="section level3">
 <h3>Define data preprocessing and feature engineering</h3>
@@ -1877,23 +1879,14 @@ model_e2e &lt;-
   model_e2e %&gt;%
   finalize_workflow(best_params) %&gt;%
   fit(data = training(splits))</code></pre>
-<pre><code>## Warning: There are new levels in a factor: NA
-
-## Warning: There are new levels in a factor: NA
-
-## Warning: There are new levels in a factor: NA</code></pre>
 </div>
 <div id="assess-model-performance" class="section level3">
 <h3>Assess model performance</h3>
 <p>The performance of the final model is assesed on the test partition.</p>
 <pre class="r"><code># predict observations in test data.
-preds &lt;- predict(model_e2e, new_data = testing(splits), type = &quot;prob&quot;)</code></pre>
-<pre><code>## Warning: There are new levels in a factor: NA
+preds &lt;- predict(model_e2e, new_data = testing(splits), type = &quot;prob&quot;)
 
-## Warning: There are new levels in a factor: NA
-
-## Warning: There are new levels in a factor: NA</code></pre>
-<pre class="r"><code># assess precision of final model on test data.
+# assess precision of final model on test data.
 preds %&gt;%
   select(.pred_TRUE) %&gt;%
   bind_cols(testing(splits) %&gt;% select(churn)) %&gt;%
@@ -1914,12 +1907,18 @@ preds %&gt;%
 <li>Modeleksperimenter: feature engineering, andre algoritmer, tuning</li>
 <li>Balancering af data?</li>
 </ul>
-<p>Måske er der basis for at lave yderligere modeller. * Sandsynlighed for at forhindre <em>churn</em> ved indgreb. * Sandsynlighed for at forhindre <em>churn</em> ved et givet indgreb (pris/andet produkt).</p>
+<p>Måske er der basis for at lave yderligere modeller såsom:</p>
+<ul>
+<li>Sandsynlighed for at forhindre <em>churn</em> ved indgreb.</li>
+<li>Sandsynlighed for at forhindre <em>churn</em> ved et givet indgreb (pris/andet produkt).</li>
+</ul>
 </div>
 <div id="deployment" class="section level2">
 <h2>Deployment</h2>
 <ul>
-<li>REST-API ** Alternativ 1: Plug’n’play med Azure ** Alternativ 2: Komplet pipeline (pakke efter pakkeskabelon -&gt; Jenkins CI/CD pipeline -&gt; Deploy -&gt; Start API)</li>
+<li>REST-API</li>
+<li>Alternativ 1: Plug’n’play med Azure</li>
+<li>Alternativ 2: Komplet pipeline (pakke efter pakkeskabelon -&gt; Jenkins CI/CD pipeline -&gt; Deploy -&gt; Start API)</li>
 </ul>
 </div>
 
