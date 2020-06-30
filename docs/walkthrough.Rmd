@@ -1,0 +1,135 @@
+---
+title: "Walkthrough"
+author: "LK"
+date: "29/6/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+devtools::load_all()
+library(dplyr)
+library(knitr)
+library(recipes)
+library(magrittr)
+library(parsnip)
+library(workflows)
+library(rsample)
+library(yardstick)
+library(tune)
+```
+
+## Formål
+
+At udvikle en Machine Learning-model, der prædikterer sandsynligheden for, at en hvilken som helst kunde vil *churne* inden for de næste 30 dage fra et givet tidspunkt **t**.
+
+Prædiktionerne beregnes med udgangspunkt i de data, der til tidspunkt **t** beskriver kunden og dens engagement. 
+
+## Data
+
+Til modeludviklingen anvendes historiske data for kunders *churn* i virksomheden.
+
+Arbejdet med at indsamle data og lægge det til rette er allerede gjort af andre.
+
+```{r}
+# indlæs data
+df <- get("cbb")
+```
+
+Data er tabelleret, fremstår ['tidy'](https://en.wikipedia.org/wiki/Tidy_data) og umiddelbart egnet til analyse og modeludvikling.
+
+```{r}
+kable(head(df))
+```
+
+Data er ikke dokumenteret, og det er derfor nødvendigt at gøre nogle antagelser.
+```{r}
+glimpse(df)
+```
+
+ph_num: id-variabel
+access_fee: abonnement
+
+variable med suffiks _t*: 'laggede' værdier af en variabel
+
+```{r}
+table(df$product)
+all(df$arpu == df$billed_amt)
+table(df$extract_date)
+# irrelevant
+head(df$zip)
+# redundante lags!
+head(df$seniority_months)
+head(df$age)
+table(df$phone)
+table(df$churn)
+```
+
+```{r}
+# convert outcome variable to appropriate format.
+df$churn <- as.factor(df$churn)
+
+# split data into train and test partitions.
+set.seed(123)
+splits <- initial_split(df, props = 0.8)
+
+# define data preprocessing and feature engineering.
+rec <- recipe(training(splits)) %>% 
+  # remove irrelevant variables.
+  step_rm(ph_num, 
+          extract_date, 
+          seniority_months_t1,
+          seniority_months_t2) %>%
+  # set target variable
+  update_role(churn, new_role = "outcome") %>%
+  # set predictors
+  update_role(everything(), -all_outcomes(), new_role = "predictor") %>%
+  # create dummy variables for factor variables
+  step_dummy(all_nominal(), -all_outcomes(), one_hot = FALSE)
+
+# define ML model.
+model <- boost_tree(mode = "classification",
+                    tree_depth = tune()) %>%
+  set_engine("xgboost")
+
+# define complete model workflow.
+set.seed(123)
+flow <- workflow() %>%
+  add_recipe(rec) %>%
+  add_model(model)
+
+folds <- vfold_cv(training(splits), v = 5)
+tuning <- tune_grid(
+  flow,
+  resamples = folds,
+  grid = data.frame(tree_depth = c(3,5))
+)
+
+
+
+
+#   # TODO: tune model, e.g. using grid search in combination with CV and *AUC* as   #    performance metric.
+#   fit(data = training(splits))
+# 
+# # predict observations in test data.
+# preds <- predict(flow, new_data = testing(splits), type = "prob")
+# 
+# # assess precision of final model on test data.
+# auc_test <- preds %>%
+#   select(.pred_TRUE) %>%
+#   bind_cols(testing(splits) %>% select(churn)) %>%
+#   roc_auc(truth = churn, .pred_TRUE)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
