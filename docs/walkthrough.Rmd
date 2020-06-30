@@ -1,8 +1,11 @@
 ---
-title: "Walkthrough"
-author: "LK"
+title: "CBB Churn ML Model"
 date: "29/6/2020"
-output: html_document
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+    theme: united
 ---
 
 ```{r setup, include=FALSE}
@@ -21,9 +24,9 @@ library(tune)
 
 ## Formål
 
-At udvikle en Machine Learning-model, der prædikterer sandsynligheden for, at en hvilken som helst kunde vil *churne* inden for de næste 30 dage fra et givet tidspunkt **t**.
+At udvikle en Machine Learning-model, der beregner sandsynligheden for, at en kunde vil *churne* inden for de næste 30 dage fra et givet tidspunkt **t**.
 
-Prædiktionerne beregnes med udgangspunkt i de data, der til tidspunkt **t** beskriver kunden og dens engagement. 
+Sandsynligheder beregnes med udgangspunkt i de data, der til tidspunkt **t** beskriver kunden og dens engagement. 
 
 ## Data
 
@@ -36,93 +39,190 @@ Arbejdet med at indsamle data og lægge det til rette er allerede gjort af andre
 df <- get("cbb")
 ```
 
-Data er tabelleret, fremstår ['tidy'](https://en.wikipedia.org/wiki/Tidy_data) og umiddelbart egnet til analyse og modeludvikling.
+Data er tabelleret, fremstår ['tidy'](https://en.wikipedia.org/wiki/Tidy_data) 
+med en række pr. kunde og umiddelbart egnet til analyse og modeludvikling.
 
 ```{r}
 kable(head(df))
 ```
 
-Data er ikke dokumenteret, og det er derfor nødvendigt at gøre nogle antagelser.
+### Antagelser om data
+
+Data er ikke dokumenteret, og det er derfor nødvendigt at gøre nogle mere eller 
+mindre kvalificerede antagelser om data.
+
+Først inspiceres data lidt nærmere.
+
 ```{r}
 glimpse(df)
 ```
 
-ph_num: id-variabel
-access_fee: abonnement
+Nedenfor skitseres de antagelser, der er gjort om de enkelte variable og
+deres typer (numerisk/kategorisk/dato).
 
-variable med suffiks _t*: 'laggede' værdier af en variabel
+* **ph_num**: en id-variabel, der identificerer kunden og dens kundeforhold.
+* **product**: kundens produkt/abonnement. Kategorisk variabel.
+* **access_fee**: prisen for kundens abonnement. Numerisk variabel.
+* **arpu**: pas! men ser ud til at være relateret til *billed_amt*. Numerisk variabel.
+* **billed_amt**: mængden af ud/indgående billeddata-trafik? Numerisk variabel.
+* **extract_date**: dato for indlæsning af data. Dato-variabel.
+* **zip**: postnummer. Kategorisk variabel.
+* **seniority_months**: alder for kundeforhold i måneder. Numerisk variabel.
+* **age**: alder. Numerisk variabel.
+* **churn**: 0/1-variabel med information om, om kunden har churnet eller ej.
+
+Variable med suffiks [variabel]_t*: 'laggede' værdier af [variabel].
+
+## Modelvalg
+### Modeltype
+
+Da målet med modellen er at skønne **churn**, og fordi churn er en 0/1-variabel,
+modelleres problemstillingen som et 'binært klassifikationsproblem'.
 
 ```{r}
-table(df$product)
-all(df$arpu == df$billed_amt)
-table(df$extract_date)
-# irrelevant
-head(df$zip)
-# redundante lags!
-head(df$seniority_months)
-head(df$age)
-table(df$phone)
 table(df$churn)
 ```
 
-```{r}
-# convert outcome variable to appropriate format.
-df$churn <- as.factor(df$churn)
+Det bemærkes, at fordelingen af **churn** er skæv, dvs. at det store flertal af 
+kunder **ikke** har churnet inden for en periode på 30 dage.
 
-# split data into train and test partitions.
+Alle andre variable vil som udgangspunkt blive anvendt som baggrundsvariable/features.
+
+### Irrelevante variable
+Flere af variablene kan på forhånd konstateres at være irrelevante for vores model.
+
+* **ph_num**: blot en ID-variabel, der ikke indeholder nogen information.
+* **extract_date**: alle data er indlæst på samme dato, ingen variation og dermed ingen brugbar information.
+* **seniority_months_t1/2**: indeholder ingen ny information i forhold til **seniority_months**.
+
+```{r}
+vars_irrelevant <- c("ph_num",
+                     "extract_date",
+                     "seniority_months_t1",
+                     "seniority_months_t2")
+```
+
+### ML framework
+Til at bygge modellen anvendes `tidymodels` frameworket, der er en Machine
+Learning toolbox til R. Den kan sammenlignes med `caret` (R), `mlr(3)` (R) og 
+`sklearn` (python).
+
+## Modeludvikling
+
+```{r, echo = FALSE}
+# convert outcome variable to appropriate format
+df$churn <- as.factor(df$churn)
+```
+
+### Data splitting
+Split data into training (80%) and testing (20%) partitions. Set seed to ensure reproduceability.
+
+```{r, echo = FALSE}
 set.seed(123)
 splits <- initial_split(df, props = 0.8)
+```
 
-# define data preprocessing and feature engineering.
+### Define data preprocessing and feature engineering
+
+Outcome and predictor variables are declared, cathegorical variables are 'one-hot'-encoded (except 'zip', that is kept as a numeric). This process is defined as a `recipe`.
+
+```{r, warnings = FALSE, message = FALSE}
 rec <- recipe(training(splits)) %>% 
   # remove irrelevant variables.
-  step_rm(ph_num, 
-          extract_date, 
-          seniority_months_t1,
-          seniority_months_t2) %>%
+  step_rm(vars_irrelevant) %>%
   # set target variable
   update_role(churn, new_role = "outcome") %>%
   # set predictors
   update_role(everything(), -all_outcomes(), new_role = "predictor") %>%
   # create dummy variables for factor variables
   step_dummy(all_nominal(), -all_outcomes(), one_hot = FALSE)
+```
 
-# define ML model.
-model <- boost_tree(mode = "classification",
+(This part could be split into two parts.)
+
+### Define ML model
+
+Typically the `xgboost` model is a good choice for this kind of problem. 
+
+```{r, warnings = FALSE, message = FALSE}
+model <- boost_tree(mode = "classification", 
                     tree_depth = tune()) %>%
   set_engine("xgboost")
+```
 
-# define complete model workflow.
+### Define End-to-End Model
+
+The data preprocessing and ML model is combined into one complete end-to-end model specification.
+
+```{r, warnings = FALSE, message = FALSE}
 set.seed(123)
-flow <- workflow() %>%
+model_e2e <- workflow() %>%
   add_recipe(rec) %>%
   add_model(model)
+```
 
-folds <- vfold_cv(training(splits), v = 5)
+## Model tuning
+
+Model is tuned using grid search in combination with cross validation. 
+'ROC AUC' is chosen as performance metric.
+```{r, warnings = FALSE, message = FALSE}
+set.seed(123)
+folds <- vfold_cv(training(splits), v = 3)
 tuning <- tune_grid(
-  flow,
+  model_e2e,
   resamples = folds,
   grid = data.frame(tree_depth = c(3,5))
 )
-
-
-
-
-#   # TODO: tune model, e.g. using grid search in combination with CV and *AUC* as   #    performance metric.
-#   fit(data = training(splits))
-# 
-# # predict observations in test data.
-# preds <- predict(flow, new_data = testing(splits), type = "prob")
-# 
-# # assess precision of final model on test data.
-# auc_test <- preds %>%
-#   select(.pred_TRUE) %>%
-#   bind_cols(testing(splits) %>% select(churn)) %>%
-#   roc_auc(truth = churn, .pred_TRUE)
+# show best values of hyperparameters.
+pm_metric = "roc_auc"
+show_best(tuning, metric = pm_metric)
 ```
 
+### Fit final model
 
+The final model is fit using the best values of the hyperparameters on all of the training data.
+```{r, warnings = FALSE, message = FALSE}
+best_params <- select_best(tuning, pm_metric)
+model_e2e <- 
+  model_e2e %>%
+  finalize_workflow(best_params) %>%
+  fit(data = training(splits))
+```
 
+### Assess model performance
+
+The performance of the final model is assesed on the test partition.
+
+```{r, warnings = FALSE, message = FALSE}
+# predict observations in test data.
+preds <- predict(model_e2e, new_data = testing(splits), type = "prob")
+
+# assess precision of final model on test data.
+preds %>%
+  select(.pred_TRUE) %>%
+  bind_cols(testing(splits) %>% select(churn)) %>%
+  roc_auc(truth = churn, .pred_TRUE)
+```
+
+## Next steps
+
+Hvis man havde mere tid, kunne man overveje følgende.
+
+* Er target-variablen specificeret hensigtsmæssigt?
+* Anden arkitektur, f.eks. 'survival model'?
+* Flere variable: data for kundeinteraktion (kommunikation med virksomheden), aktivitet, øvrig viden om kunden
+* Modeleksperimenter: feature engineering, andre algoritmer, tuning
+* Balancering af data?
+
+Måske er der basis for at lave yderligere modeller.
+* Sandsynlighed for at forhindre *churn* ved indgreb.
+* Sandsynlighed for at forhindre *churn* ved et givet indgreb (pris/andet produkt).
+
+## Deployment
+
+* REST-API
+* Alternativ 1: Plug'n'play med Azure
+* Alternativ 2: Komplet pipeline (pakke efter pakkeskabelon -> Jenkins CI/CD pipeline -> Deploy -> Start API)
 
 
 
