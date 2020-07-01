@@ -77,7 +77,8 @@ Variable med suffiks [variabel]_t*: 'laggede' værdier af [variabel].
 ### Modeltype
 
 Da målet med modellen er at skønne **churn**, og fordi churn er en 0/1-variabel,
-modelleres problemstillingen som et 'binært klassifikationsproblem'.
+modelleres problemstillingen som et 'binært klassifikationsproblem' med **churn** 
+som 'target'.
 
 ```{r, warnings = FALSE, message = FALSE}
 table(df$churn)
@@ -135,7 +136,10 @@ rec <- recipe(training(splits)) %>%
   # set predictors
   update_role(everything(), -all_outcomes(), new_role = "predictor") %>%
   # create dummy variables for factor variables
-  step_dummy(all_nominal(), -all_outcomes(), one_hot = FALSE)
+  step_dummy(all_nominal(), -all_outcomes(), one_hot = FALSE) %>%
+  # some kind of feature engineering, e.g. create a basis expansion of a variable
+  # using natural spline.
+  step_ns(billed_amt, deg_free = tune())
 ```
 
 (This part could be split into two parts.)
@@ -171,7 +175,8 @@ folds <- vfold_cv(training(splits), v = 3)
 tuning <- tune_grid(
   model_e2e,
   resamples = folds,
-  grid = data.frame(tree_depth = c(3,5))
+  grid = expand.grid(tree_depth = c(3,5),
+                     deg_free = c(2,3))
 )
 # show best values of hyperparameters.
 pm_metric = "roc_auc"
@@ -191,7 +196,7 @@ model_e2e <-
 
 ### Assess model performance
 
-The performance of the final model is assesed on the test partition.
+The performance of the final model is assessed on the test partition.
 
 ```{r, warning = FALSE, message = FALSE}
 # predict observations in test data.
@@ -208,10 +213,11 @@ preds %>%
 
 Hvis man havde mere tid, kunne man overveje følgende.
 
+* Hvad har Telenor udviklet?
 * Er target-variablen specificeret hensigtsmæssigt?
 * Anden arkitektur, f.eks. 'survival model'?
 * Flere variable: data for kundeinteraktion (kommunikation med virksomheden), aktivitet, øvrig viden om kunden
-* Modeleksperimenter: feature engineering, andre algoritmer, tuning
+* Modeleksperimenter: feature engineering, håndtering af missings, andre algoritmer, tuning
 * Balancering af data?
 
 Måske er der basis for at lave yderligere modeller såsom:
@@ -224,13 +230,4 @@ Måske er der basis for at lave yderligere modeller såsom:
 * REST-API
 * Alternativ 1: Plug'n'play med Azure
 * Alternativ 2: Komplet pipeline (pakke efter pakkeskabelon -> Jenkins CI/CD pipeline -> Deploy -> Start API)
-
-
-
-
-
-
-
-
-
 
